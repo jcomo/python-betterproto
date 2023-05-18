@@ -19,10 +19,9 @@ import grpclib.const
 if TYPE_CHECKING:
     from grpclib.client import Channel
     from grpclib.metadata import Deadline
+    from grpclib._typing import IProtoMessage
 
     from .._types import (
-        ST,
-        IProtoMessage,
         Message,
         T,
     )
