@@ -31,13 +31,15 @@ from pydantic import {% for i in output_file.pydantic_imports|sort %}{{ i }}{% i
 {% endif %}
 
 import betterproto
+
 {% if output_file.services %}
-import twirp
+import twirp.errors
+import twirp.exceptions
+import twirp.context
+
 from twirp.base import Endpoint
-from twirp.context import Context
 from twirp.client import TwirpClient
 from twirp.server import TwirpServer
-from twirp.exceptions import TwirpServerException
 {% endif %}
 
 {% for i in output_file.imports|sort %}
