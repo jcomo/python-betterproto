@@ -32,8 +32,12 @@ from pydantic import {% for i in output_file.pydantic_imports|sort %}{{ i }}{% i
 
 import betterproto
 {% if output_file.services %}
-from betterproto.grpc.grpclib_server import ServiceBase
-import grpclib
+import twirp
+from twirp.base import Endpoint
+from twirp.context import Context
+from twirp.client import TwirpClient
+from twirp.server import TwirpServer
+from twirp.exceptions import TwirpServerException
 {% endif %}
 
 {% for i in output_file.imports|sort %}
@@ -102,149 +106,61 @@ class {{ message.py_name }}(betterproto.Message):
     {%  endif %}
 
 {% endfor %}
+
 {% for service in output_file.services %}
-class {{ service.py_name }}Stub(betterproto.ServiceStub):
+class {{ service.py_name }}Client(TwirpClient):
     {% if service.comment %}
 {{ service.comment }}
-
-    {% elif not service.methods %}
-    pass
     {% endif %}
+
     {% for method in service.methods %}
-    async def {{ method.py_name }}(self
-        {%- if not method.client_streaming -%}
-            {%- if method.py_input_message -%}, {{ method.py_input_message_param }}: "{{ method.py_input_message_type }}"{%- endif -%}
-        {%- else -%}
-            {# Client streaming: need a request iterator instead #}
-            , {{ method.py_input_message_param }}_iterator: Union[AsyncIterable["{{ method.py_input_message_type }}"], Iterable["{{ method.py_input_message_type }}"]]
-        {%- endif -%}
-            ,
-            *
-            , timeout: Optional[float] = None
-            , deadline: Optional["Deadline"] = None
-            , metadata: Optional["MetadataLike"] = None
-            ) -> {% if method.server_streaming %}AsyncIterator["{{ method.py_output_message_type }}"]{% else %}"{{ method.py_output_message_type }}"{% endif %}:
-        {% if method.comment %}
-{{ method.comment }}
-
-        {% endif %}
-        {% if method.server_streaming %}
-            {% if method.client_streaming %}
-        async for response in self._stream_stream(
-            "{{ method.route }}",
-            {{ method.py_input_message_param }}_iterator,
-            {{ method.py_input_message_type }},
-            {{ method.py_output_message_type.strip('"') }},
-            timeout=timeout,
-            deadline=deadline,
-            metadata=metadata,
-        ):
-            yield response
-            {% else %}{# i.e. not client streaming #}
-        async for response in self._unary_stream(
-            "{{ method.route }}",
-            {{ method.py_input_message_param }},
-            {{ method.py_output_message_type.strip('"') }},
-            timeout=timeout,
-            deadline=deadline,
-            metadata=metadata,
-        ):
-            yield response
-
-            {% endif %}{# if client streaming #}
-        {% else %}{# i.e. not server streaming #}
-            {% if method.client_streaming %}
-        return await self._stream_unary(
-            "{{ method.route }}",
-            {{ method.py_input_message_param }}_iterator,
-            {{ method.py_input_message_type }},
-            {{ method.py_output_message_type.strip('"') }},
-            timeout=timeout,
-            deadline=deadline,
-            metadata=metadata,
+    def {{ method.proto_name }}(self, *args, ctx, request, server_path_prefix="/twirp", **kwargs):
+        return self._make_request(
+        url=f"{server_path_prefix}/{{ output_file.package }}.{{ service.proto_name }}/{{ method.proto_name }}",
+            ctx=ctx,
+            request=request,
+            response_obj={{ method.py_output_message_type }},
+            **kwargs,
         )
-            {% else %}{# i.e. not client streaming #}
-        return await self._unary_unary(
-            "{{ method.route }}",
-            {{ method.py_input_message_param }},
-            {{ method.py_output_message_type.strip('"') }},
-            timeout=timeout,
-            deadline=deadline,
-            metadata=metadata,
-        )
-            {% endif %}{# client streaming #}
-        {% endif %}
+    {% endfor %}
+{% endfor %}
+
+{% for service in output_file.services %}
+class {{ service.py_name }}Base:
+    {% for method in service.methods %}
+    def {{ method.py_name }}(
+        self,
+        context: twirp.context.Context,
+        request: "{{ method.py_input_message_type }}",
+        ) -> "{{ method.py_output_message_type }}":
+            raise twirp.exceptions.TwirpServerException(
+                code=twirp.errors.Errors.Unimplemented,
+                message=f"Not implemented"
+            )
 
     {% endfor %}
 {% endfor %}
 
 {% for service in output_file.services %}
-class {{ service.py_name }}Base(ServiceBase):
+class {{ service.py_name }}Server(TwirpServer):
     {% if service.comment %}
 {{ service.comment }}
-
     {% endif %}
 
-    {% for method in service.methods %}
-    async def {{ method.py_name }}(self
-        {%- if not method.client_streaming -%}
-            {%- if method.py_input_message -%}, {{ method.py_input_message_param }}: "{{ method.py_input_message_type }}"{%- endif -%}
-        {%- else -%}
-            {# Client streaming: need a request iterator instead #}
-            , {{ method.py_input_message_param }}_iterator: AsyncIterator["{{ method.py_input_message_type }}"]
-        {%- endif -%}
-            ) -> {% if method.server_streaming %}AsyncIterator["{{ method.py_output_message_type }}"]{% else %}"{{ method.py_output_message_type }}"{% endif %}:
-        {% if method.comment %}
-{{ method.comment }}
-
-        {% endif %}
-        raise grpclib.GRPCError(grpclib.const.Status.UNIMPLEMENTED)
-        {% if method.server_streaming %}
-        yield {{ method.py_output_message_type }}()
-        {% endif %}
-
-    {% endfor %}
-
-    {% for method in service.methods %}
-    async def __rpc_{{ method.py_name }}(self, stream: "grpclib.server.Stream[{{ method.py_input_message_type }}, {{ method.py_output_message_type }}]") -> None:
-        {% if not method.client_streaming %}
-        request = await stream.recv_message()
-        {% else %}
-        request = stream.__aiter__()
-        {% endif %}
-        {% if not method.server_streaming %}
-        response = await self.{{ method.py_name }}(request)
-        await stream.send_message(response)
-        {% else %}
-        await self._call_rpc_handler_server_stream(
-            self.{{ method.py_name }},
-            stream,
-            request,
-        )
-        {% endif %}
-
-    {% endfor %}
-
-    def __mapping__(self) -> Dict[str, grpclib.const.Handler]:
-        return {
-        {% for method in service.methods %}
-        "{{ method.route }}": grpclib.const.Handler(
-            self.__rpc_{{ method.py_name }},
-            {% if not method.client_streaming and not method.server_streaming %}
-            grpclib.const.Cardinality.UNARY_UNARY,
-            {% elif not method.client_streaming and method.server_streaming %}
-            grpclib.const.Cardinality.UNARY_STREAM,
-            {% elif method.client_streaming and not method.server_streaming %}
-            grpclib.const.Cardinality.STREAM_UNARY,
-            {% else %}
-            grpclib.const.Cardinality.STREAM_STREAM,
-            {% endif %}
-            {{ method.py_input_message_type }},
-            {{ method.py_output_message_type }},
-        ),
-        {% endfor %}
+    def __init__(self, *args, service, server_path_prefix="/twirp"):
+        super().__init__(service=service)
+        self._prefix = f"{server_path_prefix}/{{ output_file.package }}.{{ service.proto_name }}"
+        self._endpoints = {
+            {% for method in service.methods %}
+            "{{ method.proto_name }}": Endpoint(
+                service_name="{{ service.proto_name }}",
+                name="{{ method.proto_name }}",
+                function=getattr(service, "{{ method.py_name }}"),
+                input={{ method.py_input_message_type }},
+                output={{ method.py_output_message_type }},
+            ),
+            {% endfor %}
         }
-
 {% endfor %}
 
 {% if output_file.pydantic_dataclasses %}
