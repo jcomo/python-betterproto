@@ -43,7 +43,7 @@ def outputfile_compiler(output_file: OutputTemplate) -> str:
         lines_after_imports=2,
         quiet=True,
         force_grid_wrap=2,
-        known_third_party=["grpclib", "betterproto"],
+        known_third_party=["grpclib", "twirp", "betterproto"],
     )
     return black.format_str(
         src_contents=code,
