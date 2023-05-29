@@ -14,6 +14,7 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.7"
 python-dateutil = "^2.8"
+importlib-metadata = { version = ">=1.6.0", python = "<3.8" }
 grpclib = { version = "^0.4.1", optional = true }
 twirp = { version = "^0.0.7", optional = true }
 jinja2 = { version = ">=3.0.3", optional = true }

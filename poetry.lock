@@ -1826,4 +1826,4 @@ twirp = ["twirp"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.7"
-content-hash = "e8bb12e47b98cec9857c177beb922016aea80246ebe65d0e00cf92231ca03873"
+content-hash = "d4160889c004e2a641d667b6c5b190c4cc261406d9b62f691d5f2cc52bfe494e"
